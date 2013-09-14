@@ -1,9 +1,10 @@
-local objectlua = require 'objectlua.bootstrap'
-local Object = objectlua.Object
-local Class = objectlua.Class
+require 'objectlua.bootstrap'
 
+local Object = objectlua.Object
 local _G = _G
 local classes = {}
+
+module(...)
 
 ---
 -- Private method
@@ -26,14 +27,14 @@ end
 ----
 --  Class public methods
 
-function Class.new(self, ...)
+function new(self, ...)
    local instance = self:basicNew()
    instance:initialize(...)
    return instance
 end
 
-function Class.subclass(self, className)
-   local metaclass = Class:new()
+function subclass(self, className)
+   local metaclass = _M:new()
    metaclass:setSuperclass(self.class)
    metaclass:setAsMetaclass()
    local class = metaclass:new()
@@ -46,19 +47,19 @@ function Class.subclass(self, className)
    return class
 end
 
-function Class.isMeta(self)
-   return self.class == Class
+function isMeta(self)
+   return self.class == _M
 end
 
-function Class.name(self)
+function name(self)
     return self._NAME
 end
 
-function Class.shortName(self)
+function shortName(self)
     return self._NAME:gsub(self._PACKAGE, '')
 end
 
-function Class.package(self)
+function package(self)
     local name = self:name()
     local package = _G
     for packageName in name:gmatch('([^%.]*)%.') do
@@ -70,7 +71,7 @@ function Class.package(self)
     return package
 end
 
-function Class.inheritsFrom(self, class)
+function inheritsFrom(self, class)
     if nil == self or Object == self then
         return false
     end
@@ -82,7 +83,7 @@ function Class.inheritsFrom(self, class)
 end
 
 local defaultOptions = {is='rw'}
-function Class.has(self, symbol, options)
+function has(self, symbol, options)
     options = options or defaultOptions
     options.is = options.is or defaultOptions.is
     local functionName = symbol:match('[^%w]*(.*)')
@@ -90,7 +91,7 @@ function Class.has(self, symbol, options)
     local geterSymbol
     local isBoolean = options.is:find('b')
     if isBoolean then
-        geterSymbol = functionName
+        geterSymbol = 'is'..capitalized
     else
         geterSymbol = 'get'..capitalized
     end
@@ -113,7 +114,7 @@ function Class.has(self, symbol, options)
     end
 end
 
-function Class.all()
+function all()
     local t = {}
     for k, v in _G.pairs(classes) do
         t[k] = v
@@ -121,11 +122,11 @@ function Class.all()
     return t
 end
 
-function Class.find(self, name)
+function find(self, name)
     return classes[name]
 end
 
-function Class.unregister(self)
+function unregister(self)
     self:package()[self:shortName()] = nil
     if _G.package.loaded[self._NAME] == self then
         _G.package.loaded[self._NAME] = nil
@@ -136,7 +137,7 @@ end
 -- Note: calling reset() will unregister (and allow you to reload or
 -- redefine) all user defined classes, but not the Object and Class
 -- classes (and corresponding metaclasses).
-function Class.reset()
+function reset()
     for name, class in _G.pairs(classes) do
         if class:package() ~= _G.objectlua then
             class:unregister()
@@ -147,8 +148,8 @@ function Class.reset()
 
     register(Object, 'objectlua.Object')
     register(_G.objectlua['Object Metaclass'], 'objectlua.Object Metaclass')
-    register(Class, 'objectlua.Class')
+    register(_M, 'objectlua.Class')
     register(_G.objectlua['Class Metaclass'], 'objectlua.Class Metaclass')
 end
 
-Class.reset()
+_M.reset()

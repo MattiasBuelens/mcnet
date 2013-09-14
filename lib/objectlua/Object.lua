@@ -1,16 +1,18 @@
-local objectlua = require 'objectlua.bootstrap'
-local Object = objectlua.Object
+require 'objectlua.bootstrap'
+require 'objectlua.Class'
 
 local _G = _G
 
-function Object.initialize(self)
+module(...)
+
+function initialize(self)
 end
 
-function Object.isKindOf(self, class)
+function isKindOf(self, class)
    return self.class == class or self.class:inheritsFrom(class)
 end
 
-function Object.clone(self, object)
+function clone(self, object)
     local clone = self.class:basicNew()
     for k, v in _G.pairs(self) do
         clone[k] = v
@@ -18,12 +20,10 @@ function Object.clone(self, object)
     return clone
 end
 
-function Object.className(self)
+function className(self)
     return self.class:name()
 end
 
-function Object.subclassResponsibility(self)
+function subclassResponsibility(self)
     _G.error("Error: subclass responsibility.")
 end
-
-return Object

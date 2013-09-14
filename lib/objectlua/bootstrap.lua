@@ -1,5 +1,10 @@
 local _G = _G
 
+module(...)
+
+_G.objectlua = {}
+
+
 ---
 -- Helper methods
 
@@ -94,9 +99,7 @@ ObjectMetaclass:setAsMetaclass()
 ClassMetaclass:setAsMetaclass()
 
 -- Put Class and Object in the module
-local objectlua = {}
-objectlua.Object = Object
-objectlua['Object Metaclass'] = ObjectMetaclass
-objectlua.Class = Class
-objectlua['Class Metaclass'] = ClassMetaclass
-return objectlua
+_G.objectlua.Object = Object
+_G.objectlua['Object Metaclass'] = ObjectMetaclass
+_G.objectlua.Class = Class
+_G.objectlua['Class Metaclass'] = ClassMetaclass
