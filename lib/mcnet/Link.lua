@@ -11,12 +11,14 @@ local EventLoop		= require "event.EventLoop"
 
 -- Constants
 local CHANNEL_BROADCAST = 65535
-local FLAG_CONNECT		= "CON"	-- Connect to peers
-local FLAG_DISCONNECT	= "DSC"	-- Disconnect from peers
-local FLAG_GREET		= "GRT"	-- Peer replies to connect
-local FLAG_DATA			= "DAT"	-- Data to peer
-local FLAG_PING			= "PIN"	-- Ping to peer
-local FLAG_PONG			= "PON"	-- Pong back to peer
+
+-- Identifiers
+local LINK_CMD_CONNECT		= "CON"	-- Connect to peers
+local LINK_CMD_DISCONNECT	= "DSC"	-- Disconnect from peers
+local LINK_CMD_GREET		= "GRT"	-- Peer replies to connect
+local LINK_CMD_DATA			= "DAT"	-- Data to peer
+local LINK_CMD_PING			= "PIN"	-- Ping to peer
+local LINK_CMD_PONG			= "PON"	-- Pong back to peer
 
 -- Configuration
 local PING_DELAY		= 30	-- Time between pings
@@ -30,41 +32,15 @@ end
 -- Fragment
 local Fragment = Object:subclass("mcnet.link.Fragment")
 
-function Fragment:initialize(flags, data)
-	self.flags = self:parseFlags(flags)
+function Fragment:initialize(command, data)
+	self.command = command or LINK_CMD_DATA
 	self.data = data or ""
-end
-function Fragment:hasFlag(flag)
-	return self.flags[flag] or false
-end
-function Fragment:setFlag(flag, bSet)
-	self.flags[flag] = bSet
-end
-function Fragment:getFlagsList()
-	local aFlags = {}
-	for sFlag, bSet in pairs(self.flags) do
-		if bSet then table.insert(aFlags, sFlag) end
-	end
-	return aFlags
 end
 function Fragment.class:parse(message)
 	return self:new(string.match(message, "^([^#]+)#(.*)$"))
 end
-function Fragment:parseFlags(flags)
-	local tFlags = {}
-	if type(flags) == "string" then
-		for flag in string.gmatch(flags, "[^+]+") do
-			tFlags[flag] = true
-		end
-	elseif type(flags) == "table" then
-		for _,flag in pairs(flags) do
-			tFlags[flag] = true
-		end
-	end
-	return tFlags
-end
 function Fragment:serialize()
-	return table.concat(self:getFlagsList(), "+") .. "#" .. tostring(self.data)
+	return tostring(self.command) .. "#" .. tostring(self.data)
 end
 function Fragment.class:serialize(fragment)
 	-- Serialize fragment for transmission
@@ -75,7 +51,7 @@ function Fragment.class:serialize(fragment)
 end
 function Fragment.class:forData(data)
 	-- Build fragment for data
-	return self:new(FLAG_DATA, tostring(data))
+	return self:new(LINK_CMD_DATA, tostring(data))
 end
 
 -- Interface
@@ -180,7 +156,7 @@ function Link:close()
 end
 function Link:connect()
 	-- Broadcast SYN
-	self:broadcast(Fragment:new(FLAG_CONNECT))
+	self:broadcast(Fragment:new(LINK_CMD_CONNECT))
 	self:trigger("connect")
 	-- Schedule ping
 	self:schedulePing()
@@ -189,7 +165,7 @@ function Link:disconnect()
 	-- Remove timers
 	self.pingTimer, self.pongTimer = nil, nil
 	-- Broadcast FIN
-	self:broadcast(Fragment:new(FLAG_DISCONNECT))
+	self:broadcast(Fragment:new(LINK_CMD_DISCONNECT))
 	-- Clear peers
 	self.peers = {}
 	self:trigger("disconnect")
@@ -227,7 +203,7 @@ function Link:ping()
 		self.peersPonged[peer] = false
 	end
 	-- Broadcast ping
-	self:broadcast(Fragment:new(FLAG_PING))
+	self:broadcast(Fragment:new(LINK_CMD_PING))
 	-- Schedule pong timeout
 	self.pongTimer = os.startTimer(PONG_TIMEOUT)
 end
@@ -251,29 +227,30 @@ function Link:removeNotResponding()
 end
 function Link:onModemMessage(side, senderChannel, replyChannel, message, distance)
 	local fragment = Fragment:parse(message)
+	local command = fragment.command
 	local peer = replyChannel
 	-- Ignore own messages from a loop in the network
 	if peer == self.address then return end
-	-- Check flags
-	if fragment:hasFlag(FLAG_DATA) then
+	-- Check command
+	if command == LINK_CMD_DATA then
 		-- Data fragment
 		local isBroadcast = (senderChannel == CHANNEL_BROADCAST)
 		self:trigger("receive", peer, fragment.data, distance, isBroadcast)
-	elseif fragment:hasFlag(FLAG_PING) then
+	elseif command == LINK_CMD_PING then
 		-- Ping received, send pong
-		self:send(peer, Fragment:new(FLAG_PONG))
-	elseif fragment:hasFlag(FLAG_PONG) then
+		self:send(peer, Fragment:new(LINK_CMD_PONG))
+	elseif command == LINK_CMD_PONG then
 		-- Pong received
 		self:receivePong(peer, side)
-	elseif fragment:hasFlag(FLAG_CONNECT) then
+	elseif command == LINK_CMD_CONNECT then
 		-- Peer connected
 		self:addPeer(peer, side)
 		-- Greet peer
-		self:send(peer, Fragment:new(FLAG_GREET))
-	elseif fragment:hasFlag(FLAG_GREET) then
+		self:send(peer, Fragment:new(LINK_CMD_GREET))
+	elseif command == LINK_CMD_GREET then
 		-- Peer greeted us
 		self:addPeer(peer, side)
-	elseif fragment:hasFlag(FLAG_DISCONNECT) then
+	elseif command == LINK_CMD_DISCONNECT then
 		-- Peer disconnected
 		self:removePeer(peer)
 	end

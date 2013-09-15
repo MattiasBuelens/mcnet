@@ -17,9 +17,9 @@ local network	= Network:new()
 EventLoop:on("key", function(key)
 	if key == keys.leftCtrl or key == rightCtrl then
 		-- Close and stop
-		print("key:"..key)
 		network:close()
 		EventLoop:stop()
+		print("Stopped")
 	end
 end)
 print("Press Ctrl to quit")
