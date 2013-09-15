@@ -12,20 +12,23 @@ local EventHandler = Object:subclass("event.EventHandler")
 
 
 function EventEmitter:initialize()
-	self.events = self.events or {}
+	self:offAll()
 end
 function EventEmitter:on(event, ...)
 	local e = self.events[event] or Event:new()
 	self.events[event] = e
-	return e:add(unpack(arg))
+	return e:add(...)
 end
 function EventEmitter:off(event, ...)
 	local e = self.events[event]
-	return e == nil or e:remove(unpack(arg))
+	return e == nil or e:remove(...)
 end
 function EventEmitter:trigger(event, ...)
 	local e = self.events[event]
-	return e == nil or e:trigger(unpack(arg))
+	return e == nil or e:trigger(...)
+end
+function EventEmitter:offAll()
+	self.events = {}
 end
 
 
@@ -85,10 +88,10 @@ function Event:trigger(...)
 	for i,handler in ipairs(self.handlers) do
 		if handler.ctxt == nil then
 			-- Call without context
-			result = handler.func(unpack(arg))
+			result = handler.func(...)
 		else
 			-- Call with context
-			result = handler.func(handler.ctxt, unpack(arg))
+			result = handler.func(handler.ctxt, ...)
 		end
 	end
 
@@ -109,11 +112,11 @@ function EventHandler:initialize(options)
 	self.ctxt = options.ctxt or nil
 	self.prio = options.prio or nil
 end
-function EventHandler.equals(h1, h2)
+function EventHandler:equals(other)
 	-- Compare by members
-	return h1.func == h2.func
-		and h1.ctxt == h2.ctxt
-		and h1.prio == h2.prio
+	return self.func == other.func
+		and self.ctxt == other.ctxt
+		and self.prio == other.prio
 end
 function EventHandler.class.compareByPriority(h1, h2)
 	return h1.prio < h2.prio

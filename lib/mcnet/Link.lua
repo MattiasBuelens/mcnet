@@ -18,6 +18,7 @@ local FLAG_DATA			= "DAT"	-- Data to peer
 local FLAG_PING			= "PIN"	-- Ping to peer
 local FLAG_PONG			= "PON"	-- Pong back to peer
 
+-- Configuration
 local PING_DELAY		= 30	-- Time between pings
 local PONG_TIMEOUT		= 5		-- Pong timeout
 

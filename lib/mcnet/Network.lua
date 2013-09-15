@@ -10,12 +10,12 @@ local EventEmitter	= require "event.EventEmitter"
 local EventLoop		= require "event.EventLoop"
 local Link			= require "mcnet.Link"
 
--- Constants
-local HEADER_PACKET			= "PKT"
-local HEADER_RIP			= "RIP"
-
+-- Identifiers
+local HEADER_PACKET			= "PKT"	-- Packet
+local HEADER_RIP			= "RIP"	-- Routing fragment
 local RIP_CMD_PUBLISH		= "PUB" -- Publish routing table
 
+-- Routing configuration
 local RIP_MAX_DISTANCE		= 16	-- The maximum distance
 local RIP_ENTRY_LIFETIME	= 30	-- Maximum lifetime of a valid routing entry
 local RIP_PUBLISH_DELAY		= 15	-- Time between two routing table publishes
@@ -51,23 +51,44 @@ end
 
 -- Routing table entry
 local RoutingEntry = Object:subclass("mcnet.network.RoutingEntry")
-function RoutingEntry:initialize(destination, distance, peer)
+function RoutingEntry:initialize(destination, ...)
 	self.destination = destination
-	self:set(distance, peer)
+	self:set(...)
 end
-function RoutingEntry:set(distance, peer)
+function RoutingEntry:set(distance, peer, persistent)
 	self.distance = distance
 	self.peer = peer
+	self.persistent = persistent or false
+	self:touch()
+end
+function RoutingEntry:touch()
+	if self.persistent then
+		-- Persistent entries do not need updates
+		return false
+	end
+	-- Update last update time
 	self.lastUpdate = os.clock()
+	return true
 end
 function RoutingEntry:isValid()
-	return self.distance < RIP_MAX_DISTANCE
+	return self.persistent or self.distance < RIP_MAX_DISTANCE
 end
 function RoutingEntry:invalidate()
+	if self.persistent then
+		-- Persistent entries never become invalid
+		return false
+	end
+	-- Invalidate distance
 	self.distance = RIP_MAX_DISTANCE
+	return true
 end
 function RoutingEntry:isExpired(currentClock)
-	return (currentClock or os.clock()) <= (self.lastUpdate + RIP_ENTRY_LIFETIME)
+	if self.persistent then
+		-- Persistent entries never expire
+		return false
+	end
+	-- Check last update time
+	return (currentClock or os.clock()) > (self.lastUpdate + RIP_ENTRY_LIFETIME)
 end
 
 -- Routing fragment
@@ -106,12 +127,12 @@ end
 function RoutingTable:get(destination)
 	return self.entries[destination] or nil
 end
-function RoutingTable:set(destination, distance, peer)
+function RoutingTable:set(destination, ...)
 	local entry = self:get(destination)
 	if entry == nil then
-		self:add(RoutingEntry:new(destination, distance, peer))
+		self:add(RoutingEntry:new(destination, ...))
 	else
-		entry:set(distance, peer)
+		entry:set(...)
 	end
 end
 function RoutingTable:remove(destination)
@@ -136,9 +157,12 @@ function RoutingTable:merge(routerAddress, routerDistance, routerTable)
 		if entry == nil then
 			-- New entry
 			self:set(destination, totalDistance, routerAddress)
-		elseif entry.peer == routerAddress and distance == RIP_MAX_DISTANCE then
+		elseif entry.peer == routerAddress and distance >= RIP_MAX_DISTANCE then
 			-- Neighbour router reports destination as unreachable
 			entry:invalidate()
+		elseif entry.peer == routerAddress and entry.distance == totalDistance then
+			-- Entry still up to date
+			entry:touch()
 		elseif entry.distance > totalDistance then
 			-- Update existing entry if shorter distance
 			entry:set(totalDistance, routerAddress)
@@ -147,7 +171,10 @@ function RoutingTable:merge(routerAddress, routerDistance, routerTable)
 end
 function RoutingTable:invalidate(routerAddress)
 	-- Invalidate direct route to router
-	self:set(routerAddress, RIP_MAX_DISTANCE, routerAddress)
+	local routerEntry = self:get(routerAddress)
+	if routerEntry.peer == routerAddress then
+		routerEntry:invalidate()
+	end
 	-- Invalidate routes through router
 	for destination,entry in pairs(self.entries) do
 		if entry.peer == routerAddress then
@@ -172,20 +199,33 @@ function Network:initialize(address)
 	self.address = address or os.getComputerID()
 	self.link = Link:new(address)
 	self.table = RoutingTable:new()
-	-- Register listeners
+end
+function Network:open()
+	-- Register event handlers
+	EventLoop:on("timer", self.onTimer, self)
 	self.link:on("receive", self.onReceive, self)
 	self.link:on("connect", self.ripStart, self)
 	self.link:on("disconnect", self.ripStop, self)
 	self.link:on("peer_connect", self.ripPeerConnect, self)
 	self.link:on("peer_disconnect", self.ripPeerDisconnect, self)
-end
-function Network:open()
+	-- Open link
 	self.link:open()
 	self:trigger("open")
 end
 function Network:close()
+	-- Unregister event handlers
+	EventLoop:off("timer", self.onTimer, self)
+	self.link:off("receive", self.onReceive, self)
+	self.link:off("connect", self.ripStart, self)
+	self.link:off("disconnect", self.ripStop, self)
+	self.link:off("peer_connect", self.ripPeerConnect, self)
+	self.link:off("peer_disconnect", self.ripPeerDisconnect, self)
+	-- Close link
 	self.link:close()
 	self:trigger("close")
+end
+function Network:send(destAddress, ttl, data)
+	self:route(Packet:new(self.address, destAddress, ttl, data))
 end
 function Network:ripPublish()
 	-- Purge expired routing entries
@@ -193,7 +233,7 @@ function Network:ripPublish()
 	-- Publish routing table
 	local data = textutils.serialize(self.table:publish())
 	local fragment = RoutingFragment:new(RIP_CMD_PUBLISH, data)
-	self.link:send(fragment:serialize())
+	self.link:broadcast(fragment:serialize())
 end
 function Network:ripSchedulePublish()
 	-- Schedule next update timer
@@ -202,7 +242,7 @@ end
 function Network:ripStart()
 	-- Initialize routing table
 	self.table:reset()
-	self.table:set(self.address, 0, self.address)
+	self.table:set(self.address, 0, self.address, true)
 	-- Initial publish
 	self:ripPublish()
 	self:ripSchedulePublish()
@@ -235,6 +275,10 @@ function Network:handlePacket(peer, packet)
 		self:trigger("drop", packet, "ttl")
 		return
 	end
+	-- Route packet
+	return self:route(packet)
+end
+function Network:route(packet)
 	-- Route the packet to the next hop
 	local entry = self.table:get(packet.destAddress)
 	if entry ~= nil and entry:isValid() then
