@@ -88,27 +88,27 @@ function has(self, symbol, options)
     options.is = options.is or defaultOptions.is
     local functionName = symbol:match('[^%w]*(.*)')
     local capitalized = functionName:sub(1, 1):upper()..functionName:sub(2)
-    local geterSymbol
+    local getterSymbol
     local isBoolean = options.is:find('b')
     if isBoolean then
-        geterSymbol = 'is'..capitalized
+        getterSymbol = 'is'..capitalized
     else
-        geterSymbol = 'get'..capitalized
+        getterSymbol = 'get'..capitalized
     end
-    local seterSymbol = 'set'..capitalized
+    local setterSymbol = 'set'..capitalized
 
-    _G.assert(nil == _G.rawget(self.__prototype__, geterSymbol))
-    _G.assert(nil == _G.rawget(self.__prototype__, seterSymbol))
+    _G.assert(nil == _G.rawget(self.__prototype__, getterSymbol))
+    _G.assert(nil == _G.rawget(self.__prototype__, setterSymbol))
 
     local default = options.default
     if options.is:find('r') then
-        _G.rawset(self.__prototype__, geterSymbol, function(self)
+        _G.rawset(self.__prototype__, getterSymbol, function(self)
                                                        return self[symbol] or default
                                                    end)
     end
 
     if options.is:find('w') then
-        _G.rawset(self.__prototype__, seterSymbol, function(self, value)
+        _G.rawset(self.__prototype__, setterSymbol, function(self, value)
                                                        self[symbol] = value
                                                    end)
     end

@@ -96,7 +96,7 @@ function Event:trigger(...)
 end
 function Event:find(handler)
 	for i,v in ipairs(self.handlers) do
-		if v == handler then
+		if handler:equals(v) then
 			return i
 		end
 	end
@@ -109,7 +109,7 @@ function EventHandler:initialize(options)
 	self.ctxt = options.ctxt or nil
 	self.prio = options.prio or nil
 end
-function EventHandler.__eq(h1, h2)
+function EventHandler.equals(h1, h2)
 	-- Compare by members
 	return h1.func == h2.func
 		and h1.ctxt == h2.ctxt
