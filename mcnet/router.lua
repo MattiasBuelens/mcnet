@@ -1,7 +1,7 @@
 --[[
 
 	MCNet
-	Repeater
+	Router
 
 ]]--
 
@@ -14,10 +14,10 @@ local Network	= require "mcnet.Network"
 
 -- Debug
 Network:on("open", function()
-	print("Repeater started on address "..Network.address)
+	print("Router started on address "..Network.address)
 end)
 Network:on("close", function()
-	print("Repeater stopped")
+	print("Router stopped")
 end)
 Network:on("route", function(packet, peer)
 	print("Packet routed to "..peer)
