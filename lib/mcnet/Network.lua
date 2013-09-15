@@ -111,7 +111,7 @@ function RoutingTable:set(destination, distance, peer)
 	if entry == nil then
 		self:add(RoutingEntry:new(destination, distance, peer))
 	else
-		entry:update(distance, peer)
+		entry:set(distance, peer)
 	end
 end
 function RoutingTable:remove(destination)
@@ -270,4 +270,4 @@ function Network:onTimer(timerID)
 end
 
 -- Exports
-return Network:new()
+return Network

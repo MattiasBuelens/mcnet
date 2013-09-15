@@ -119,7 +119,7 @@ function Link:initialize(address)
 	super.initialize(self)
 	self.address = address or os.getComputerID()
 	self.peers = {}
-	self.peersPonged = nil
+	self.peersPonged = {}
 	self.interfaces = {}
 end
 function Link:getPeersList()
