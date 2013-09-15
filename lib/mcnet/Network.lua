@@ -1,0 +1,273 @@
+--[[
+
+	MCNet
+	Network layer
+
+]]--
+
+local Object		= require "objectlua.Object"
+local EventEmitter	= require "event.EventEmitter"
+local EventLoop		= require "event.EventLoop"
+local Link			= require "mcnet.Link"
+
+-- Constants
+local HEADER_PACKET			= "PKT"
+local HEADER_RIP			= "RIP"
+
+local RIP_CMD_PUBLISH		= "PUB" -- Publish routing table
+
+local RIP_MAX_DISTANCE		= 16	-- The maximum distance
+local RIP_ENTRY_LIFETIME	= 30	-- Maximum lifetime of a valid routing entry
+local RIP_PUBLISH_DELAY		= 15	-- Time between two routing table publishes
+
+-- Packet
+local Packet = Object:subclass("mcnet.network.Packet")
+function Packet:initialize(sourceAddress, destAddress, ttl, data)
+	self.sourceAddress = tonumber(sourceAddress)
+	self.destAddress = tonumber(destAddress)
+	self.ttl = tonumber(ttl)
+	self.data = data or ""
+end
+function Packet.class:parse(message)
+	return self:new(string.match(message, "^"..HEADER_PACKET.."#(%d+)#(%d+)#(%d+)#(.*)$"))
+end
+function Packet.class:test(message)
+	return string.find(message, "^"..HEADER_PACKET) ~= nil
+end
+function Packet:serialize()
+	return HEADER_PACKET
+		.. "#" .. tostring(self.sourceAddress)
+		.. "#" .. tostring(self.destAddress)
+		.. "#" .. tostring(self.ttl)
+		.. "#" .. tostring(self.data)
+end
+function Packet.class:serialize(packet)
+	-- Serialize packet for transmission
+	if type(packet) == "table" then
+		return packet:serialize()
+	end
+	return tostring(packet)
+end
+
+-- Routing table entry
+local RoutingEntry = Object:subclass("mcnet.network.RoutingEntry")
+function RoutingEntry:initialize(destination, distance, peer)
+	self.destination = destination
+	self:set(distance, peer)
+end
+function RoutingEntry:set(distance, peer)
+	self.distance = distance
+	self.peer = peer
+	self.lastUpdate = os.clock()
+end
+function RoutingEntry:isValid()
+	return self.distance < RIP_MAX_DISTANCE
+end
+function RoutingEntry:invalidate()
+	self.distance = RIP_MAX_DISTANCE
+end
+function RoutingEntry:isExpired(currentClock)
+	return (currentClock or os.clock()) <= (self.lastUpdate + RIP_ENTRY_LIFETIME)
+end
+
+-- Routing fragment
+local RoutingFragment = Object:subclass("mcnet.network.RoutingFragment")
+function RoutingFragment:initialize(command, data)
+	self.command = command
+	self.data = data or ""
+end
+function RoutingFragment.class:parse(message)
+	return self:new(string.match(message, "^"..HEADER_RIP.."#([^#]+)#(.*)$"))
+end
+function RoutingFragment.class:test(message)
+	return string.find(message, "^"..HEADER_RIP) ~= nil
+end
+function RoutingFragment:serialize()
+	return HEADER_RIP
+		.. "#" .. tostring(self.command)
+		.. "#" .. tostring(self.data)
+end
+function RoutingFragment.class:serialize(fragment)
+	-- Serialize fragment for transmission
+	if type(fragment) == "table" then
+		return fragment:serialize()
+	end
+	return tostring(fragment)
+end
+
+-- Routing table
+local RoutingTable = Object:subclass("mcnet.network.RoutingTable")
+function RoutingTable:initialize()
+	self:reset()
+end
+function RoutingTable:add(entry)
+	self.entries[entry.destination] = entry
+end
+function RoutingTable:get(destination)
+	return self.entries[destination] or nil
+end
+function RoutingTable:set(destination, distance, peer)
+	local entry = self:get(destination)
+	if entry == nil then
+		self:add(RoutingEntry:new(destination, distance, peer))
+	else
+		entry:update(distance, peer)
+	end
+end
+function RoutingTable:remove(destination)
+	self.entries[destination] = nil
+end
+function RoutingTable:reset()
+	self.entries = {}
+end
+function RoutingTable:publish()
+	-- Create map from destinations to distances
+	local t = {}
+	for destination,entry in pairs(self.entries) do
+		t[destination] = entry.distance
+	end
+	return t
+end
+function RoutingTable:merge(routerAddress, routerDistance, routerTable)
+	-- Merge results from neighbour router into own table
+	for destination,distance in pairs(routerTable) do
+		local entry = self:get(destination)
+		local totalDistance = distance + routerDistance
+		if entry == nil then
+			-- New entry
+			self:set(destination, totalDistance, routerAddress)
+		elseif entry.peer == routerAddress and distance == RIP_MAX_DISTANCE then
+			-- Neighbour router reports destination as unreachable
+			entry:invalidate()
+		elseif entry.distance > totalDistance then
+			-- Update existing entry if shorter distance
+			entry:set(totalDistance, routerAddress)
+		end
+	end
+end
+function RoutingTable:invalidate(routerAddress)
+	-- Invalidate direct route to router
+	self:set(routerAddress, RIP_MAX_DISTANCE, routerAddress)
+	-- Invalidate routes through router
+	for destination,entry in pairs(self.entries) do
+		if entry.peer == routerAddress then
+			entry:invalidate()
+		end
+	end
+end
+function RoutingTable:invalidateExpired()
+	-- Invalidate expired routes
+	local currentClock = os.clock()
+	for destination,entry in pairs(self.entries) do
+		if entry:isValid() and entry:isExpired(currentClock) then
+			entry:invalidate()
+		end
+	end
+end
+
+-- Network
+local Network = EventEmitter:subclass("mcnet.network.Network")
+function Network:initialize(address)
+	super.initialize(self)
+	self.address = address or os.getComputerID()
+	self.link = Link:new(address)
+	self.table = RoutingTable:new()
+	-- Register listeners
+	self.link:on("receive", self.onReceive, self)
+	self.link:on("connect", self.ripStart, self)
+	self.link:on("disconnect", self.ripStop, self)
+	self.link:on("peer_connect", self.ripPeerConnect, self)
+	self.link:on("peer_disconnect", self.ripPeerDisconnect, self)
+end
+function Network:open()
+	self.link:open()
+	self:trigger("open")
+end
+function Network:close()
+	self.link:close()
+	self:trigger("close")
+end
+function Network:ripPublish()
+	-- Purge expired routing entries
+	self.table:invalidateExpired()
+	-- Publish routing table
+	local data = textutils.serialize(self.table:publish())
+	local fragment = RoutingFragment:new(RIP_CMD_PUBLISH, data)
+	self.link:send(fragment:serialize())
+end
+function Network:ripSchedulePublish()
+	-- Schedule next update timer
+	self.ripPublishTimer = os.startTimer(RIP_PUBLISH_DELAY)
+end
+function Network:ripStart()
+	-- Initialize routing table
+	self.table:reset()
+	self.table:set(self.address, 0, self.address)
+	-- Initial publish
+	self:ripPublish()
+	self:ripSchedulePublish()
+end
+function Network:ripStop()
+	-- Stop publish timer
+	self.ripPublishTimer = nil
+	-- No extra commands needed
+	-- Peers will handle our disconnect
+end
+function Network:ripPeerConnect(peer)
+	-- Add peer to routing table
+	self.table:set(peer, 1, peer)
+end
+function Network:ripPeerDisconnect(peer)
+	-- Invalidate router
+	self.table:invalidate(peer)
+end
+function Network:handlePacket(peer, packet)
+	-- Check destination
+	if packet.destAddress == self.address then
+		-- Our packet
+		self:trigger("receive", packet.sourceAddress, packet.data)
+		return
+	end
+	-- Decrease TTL
+	packet.ttl = packet.ttl - 1
+	if packet.ttl <= 0 then
+		-- Drop packet, TTL below zero
+		self:trigger("drop", packet, "ttl")
+		return
+	end
+	-- Route the packet to the next hop
+	local entry = self.table:get(packet.destAddress)
+	if entry ~= nil and entry:isValid() then
+		-- Route found
+		self:trigger("route", packet, entry.peer)
+		self.link:send(entry.peer, packet:serialize())
+	else
+		-- Drop packet, no route found
+		self:trigger("drop", packet, "route")
+	end
+end
+function Network:ripHandleFragment(peer, fragment)
+	if fragment.command == RIP_CMD_PUBLISH then
+		-- Merge peer's routing table into own table
+		self.table:merge(peer, 1, textutils.unserialize(fragment.data))
+	end
+end
+function Network:onReceive(peer, data)
+	if Packet:test(data) then
+		-- Packet
+		self:handlePacket(peer, Packet:parse(data))
+	elseif RoutingFragment:test(data) then
+		-- Routing fragment
+		self:ripHandleFragment(peer, RoutingFragment:parse(data))
+	end
+end
+function Network:onTimer(timerID)
+	if timerID == self.ripPublishTimer then
+		-- Publish and schedule next publish
+		self:ripPublish()
+		self:ripSchedulePublish()
+	end
+end
+
+-- Exports
+return Network:new()

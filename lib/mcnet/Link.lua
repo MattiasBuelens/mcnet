@@ -14,7 +14,7 @@ local CHANNEL_BROADCAST = 65535
 local FLAG_CONNECT		= "CON"	-- Connect to peers
 local FLAG_DISCONNECT	= "DSC"	-- Disconnect from peers
 local FLAG_GREET		= "GRT"	-- Peer replies to connect
-local FLAG_MESSAGE		= "MSG"	-- Message to peer
+local FLAG_DATA			= "DAT"	-- Data to peer
 local FLAG_PING			= "PIN"	-- Ping to peer
 local FLAG_PONG			= "PON"	-- Pong back to peer
 
@@ -72,9 +72,9 @@ function Fragment.class:serialize(fragment)
 	end
 	return tostring(fragment)
 end
-function Fragment.class:forMessage(message)
-	-- Build fragment for message
-	return self:new(FLAG_MSG, tostring(message))
+function Fragment.class:forData(data)
+	-- Build fragment for data
+	return self:new(FLAG_DATA, tostring(data))
 end
 
 -- Interface
@@ -138,14 +138,14 @@ function Link:addPeer(peer, side)
 	local isAdded = (self.peers[peer] == nil)
 	self.peers[peer] = side
 	if isAdded then
-		self:trigger("peer_connected", peer)
+		self:trigger("peer_connect", peer)
 	end
 end
 function Link:removePeer(peer)
 	local isRemoved = (self.peers[peer] ~= nil)
 	self.peers[peer] = nil
 	if isRemoved then
-		self:trigger("peer_disconnected", peer)
+		self:trigger("peer_disconnect", peer)
 	end
 end
 function Link:open()
@@ -157,7 +157,7 @@ function Link:open()
 			interface:open()
 		end
 	end
-	self:trigger("opened")
+	self:trigger("open")
 	-- Register event handlers
 	EventLoop:on("modem_message", self.onModemMessage, self)
 	EventLoop:on("timer", self.onTimer, self)
@@ -175,12 +175,12 @@ function Link:close()
 		interface:close()
 	end
 	self.interfaces = {}
-	self:trigger("closed")
+	self:trigger("close")
 end
 function Link:connect()
 	-- Broadcast SYN
 	self:broadcast(Fragment:new(FLAG_CONNECT))
-	self:trigger("connected")
+	self:trigger("connect")
 	-- Schedule ping
 	self:schedulePing()
 end
@@ -191,11 +191,11 @@ function Link:disconnect()
 	self:broadcast(Fragment:new(FLAG_DISCONNECT))
 	-- Clear peers
 	self.peers = {}
-	self:trigger("disconnected")
+	self:trigger("disconnect")
 end
 function Link.class:buildFragment(fragment)
 	if type(fragment) == "string" then
-		fragment = Fragment:forMessage(fragment)
+		fragment = Fragment:forData(fragment)
 	end
 	return fragment
 end
@@ -243,12 +243,10 @@ function Link:receivePong(peer, side)
 	self:addPeer(peer, side)
 end
 function Link:removeNotResponding()
-	if type(self.peersPonged) == "table" then
-		for peer, bPonged in pairs(self.peersPonged) do
-			if not bPonged then self:removePeer(peer) end
-		end
+	for peer, bPonged in pairs(self.peersPonged) do
+		if not bPonged then self:removePeer(peer) end
 	end
-	self.peersPonged = nil
+	self.peersPonged = {}
 end
 function Link:onModemMessage(side, senderChannel, replyChannel, message, distance)
 	local fragment = Fragment:parse(message)
@@ -256,16 +254,16 @@ function Link:onModemMessage(side, senderChannel, replyChannel, message, distanc
 	-- Ignore own messages from a loop in the network
 	if peer == self.address then return end
 	-- Check flags
-	if fragment:hasFlag(FLAG_MESSAGE) then
-		-- Message
+	if fragment:hasFlag(FLAG_DATA) then
+		-- Data fragment
 		local isBroadcast = (senderChannel == CHANNEL_BROADCAST)
-		self:trigger("message", message, peer, isBroadcast, distance)
+		self:trigger("receive", peer, fragment.data, distance, isBroadcast)
 	elseif fragment:hasFlag(FLAG_PING) then
 		-- Ping received, send pong
 		self:send(peer, Fragment:new(FLAG_PONG))
 	elseif fragment:hasFlag(FLAG_PONG) then
 		-- Pong received
-		self:receivePong()
+		self:receivePong(peer, side)
 	elseif fragment:hasFlag(FLAG_CONNECT) then
 		-- Peer connected
 		self:addPeer(peer, side)

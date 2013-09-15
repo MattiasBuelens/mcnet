@@ -1,9 +1,7 @@
 --[[
 
-	Repeater strategy
-	- Receive *network* message
-	- Check TTL, discard if (below) zero
-	- Re-send through all other ports
+	MCNet
+	Repeater
 
 ]]--
 
@@ -12,11 +10,28 @@ dofile(fs.combine(lib, "/compat.lua"))
 package.root = lib
 
 local EventLoop	= require "event.EventLoop"
--- TODO Switch from link to network layer
-local Link		= require "mcnet.link"
+local Network	= require "mcnet.Network"
+
+-- Debug
+Network:on("open", function()
+	print("Repeater started on address "..Network.address)
+end)
+Network:on("close", function()
+	print("Repeater stopped")
+end)
+Network:on("route", function(packet, peer)
+	print("Packet routed to "..peer)
+	print("  src: "..packet.sourceAddress..", dst: "..packet.destAddress)
+	print("  data: "..packet.data)
+end)
+Network:on("drop", function(packet, reason)
+	print("Packet dropped because of "..reason)
+	print("  src: "..packet.sourceAddress..", dst: "..packet.destAddress)
+	print("  data: "..packet.data)
+end)
 
 -- Setup
-Link:open()
+Network:open()
 
 -- Run
 EventLoop:run()
