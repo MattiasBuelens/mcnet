@@ -8,7 +8,7 @@
 ]]--
 
 local lib = fs.combine(shell.getRunningProgram(), "/../../lib/")
-dofile(fs.combine(lib, "/compat-5.1.lua"))
+dofile(fs.combine(lib, "/compat.lua"))
 package.root = lib
 
 local EventLoop	= require "event.EventLoop"
