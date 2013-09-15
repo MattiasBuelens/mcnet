@@ -18,7 +18,8 @@ local FLAG_MESSAGE		= "MSG"	-- Message to peer
 local FLAG_PING			= "PIN"	-- Ping to peer
 local FLAG_PONG			= "PON"	-- Pong back to peer
 
-local PING_TIMEOUT		= 10	-- Time between pings
+local PING_DELAY		= 30	-- Time between pings
+local PONG_TIMEOUT		= 5		-- Pong timeout
 
 local tValidSides = {}
 for n,side in ipairs(rs.getSides()) do
@@ -85,10 +86,10 @@ Interface:has("peers", {
 	is = "r"
 })
 
-function Interface:initialize(side)
+function Interface:initialize(side, replyChannel)
 	self.side = side
 	self.modem = peripheral.wrap(side)
-	self.replyChannel = os.getComputerID()
+	self.replyChannel = replyChannel
 end
 function Interface:open(callback)
 	rednet.open(self:getSide())
@@ -110,12 +111,16 @@ end
 
 -- Link
 local Link = EventEmitter:subclass("mcnet.link.Link")
-function Link:initialize()
+Link:has("address", {
+	is = "r"
+})
+
+function Link:initialize(address)
 	super.initialize(self)
+	self.address = address or os.getComputerID()
 	self.peers = {}
 	self.peersPonged = nil
 	self.interfaces = {}
-	self.replyChannel = os.getComputerID()
 end
 function Link:getPeersList()
 	local aPeers = {}
@@ -147,7 +152,7 @@ function Link:open()
 	-- Open interfaces
 	for _,side in ipairs(rs.getSides()) do
 		if peripheral.getType(side) == "modem" then
-			local interface = Interface:new(side)
+			local interface = Interface:new(side, self:getAddress())
 			self.interfaces[side] = interface
 			interface:open()
 		end
@@ -180,8 +185,8 @@ function Link:connect()
 	self:schedulePing()
 end
 function Link:disconnect()
-	-- Remove ping timer
-	self.pingTimer = nil
+	-- Remove timers
+	self.pingTimer, self.pongTimer = nil, nil
 	-- Broadcast FIN
 	self:broadcast(Fragment:new(FLAG_DISCONNECT))
 	-- Clear peers
@@ -222,12 +227,12 @@ function Link:ping()
 	end
 	-- Broadcast ping
 	self:broadcast(Fragment:new(FLAG_PING))
-	-- Schedule ping
-	self:schedulePing()
+	-- Schedule pong timeout
+	self.pongTimer = os.startTimer(PONG_TIMEOUT)
 end
 function Link:schedulePing()
-	-- Start timer
-	self.pingTimer = os.startTimer(PING_TIMEOUT)
+	-- Start ping timer
+	self.pingTimer = os.startTimer(PING_DELAY)
 end
 function Link:receivePong(peer, side)
 	-- Mark as responding
@@ -249,7 +254,7 @@ function Link:onModemMessage(side, senderChannel, replyChannel, message, distanc
 	local fragment = Fragment:parse(message)
 	local peer = replyChannel
 	-- Ignore own messages from a loop in the network
-	if replyChannel == self.replyChannel then return end
+	if peer == self.address then return end
 	-- Check flags
 	if fragment:hasFlag(FLAG_MESSAGE) then
 		-- Message
@@ -276,12 +281,15 @@ function Link:onModemMessage(side, senderChannel, replyChannel, message, distanc
 end
 function Link:onTimer(timerID)
 	if timerID == self.pingTimer then
-		-- Remove non-responding peers
-		self:removeNotResponding()
 		-- Next ping
 		self:ping()
+	elseif timerID == self.pongTimer then
+		-- Remove non-responding peers
+		self:removeNotResponding()
+		-- Schedule next ping
+		self:schedulePing()
 	end
 end
 
 -- Exports
-return Link:new()
+return Link
