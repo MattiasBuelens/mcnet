@@ -10,43 +10,62 @@ dofile(fs.combine(lib, "/compat.lua"))
 package.root = lib
 
 local EventLoop	= require "event.EventLoop"
-local Network	= require "mcnet.Network"
-local network	= Network:new()
+local Transport	= require "mcnet.Transport"
+local transport	= Transport:new()
+
+-- Read server address
+local serverAddress = nil
+repeat
+	write("Server address: ")
+	serverAddress = read()
+until tonumber(serverAddress) ~= nil
 
 -- Ctrl to quit
 EventLoop:on("key", function(key)
 	if key == keys.leftCtrl or key == rightCtrl then
 		-- Close and stop
-		network:close()
+		transport:close()
 		EventLoop:stop()
 		print("Stopped")
 	end
 end)
 print("Press Ctrl to quit")
 
--- Ping client
-network:on("receive", function(senderAddress, data)
-	if data == "PING" then
-		print("Received ping from "..senderAddress)
-	end
-end)
-local pingAddress = ""
-EventLoop:on("char", function(char)
-	if tonumber(char) ~= nil then
-		pingAddress = pingAddress .. char
+-- Client
+transport:open()
+local conn = transport:connect(1337, 80, tonumber(serverAddress))
+conn:on("open", function()
+	print("Connected")
+	print("Type a message and press Enter to send")
+	local message = ""
+	EventLoop:on("char", function(char)
+		if not conn:isOpen() then return end
+		message = message .. char
 		write(char)
-	end
+	end)
+	EventLoop:on("key", function(key)
+		if not conn:isOpen() then return end
+		if key == keys.enter or key == numPadEnter then
+			local sendMessage = message
+			message = ""
+			print()
+			print("Sending '"..sendMessage.."'...")
+			conn:send(sendMessage, function()
+				print("  Message '"..sendMessage.."' delivered")
+			end)
+		end
+	end)
+	conn:on("receive", function(data)
+		print("Received reply: '"..data.."'")
+	end)
 end)
-EventLoop:on("key", function(key)
-	if key == keys.enter or key == numPadEnter then
-		print()
-		print("Sent ping to "..pingAddress)
-		network:send(pingAddress, 5, "PING")
-		pingAddress = ""
-	end
+conn:on("closing", function()
+	print("Closing connection...")
 end)
-print("Type an address and press Enter to ping")
+conn:on("close", function()
+	print("Connection closed")
+end)
+print("Connecting...")
 
 -- Run
-network:open()
 EventLoop:run()

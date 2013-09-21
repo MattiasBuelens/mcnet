@@ -20,6 +20,9 @@ local RIP_MAX_DISTANCE		= 16	-- The maximum distance
 local RIP_ENTRY_LIFETIME	= 30	-- Maximum lifetime of a valid routing entry
 local RIP_PUBLISH_DELAY		= 15	-- Time between two routing table publishes
 
+-- Network configuration
+local TTL_DEFAULT			= 10	-- Default time-to-live for packets on the network
+
 -- Packet
 local Packet = Object:subclass("mcnet.network.Packet")
 function Packet:initialize(sourceAddress, destAddress, ttl, data)
@@ -197,7 +200,7 @@ local Network = EventEmitter:subclass("mcnet.network.Network")
 function Network:initialize(address)
 	super.initialize(self)
 	self.address = address or os.getComputerID()
-	self.link = Link:new(address)
+	self.link = Link:new(self.address)
 	self.table = RoutingTable:new()
 end
 function Network:open()
@@ -224,7 +227,10 @@ function Network:close()
 	self.link:close()
 	self:trigger("close")
 end
-function Network:send(destAddress, ttl, data)
+function Network:send(destAddress, data, ttl)
+	if ttl == nil then
+		ttl = TTL_DEFAULT
+	end
 	self:route(Packet:new(self.address, destAddress, ttl, data))
 end
 function Network:ripPublish()

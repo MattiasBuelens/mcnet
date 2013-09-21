@@ -26,7 +26,8 @@ package.path = LUA_PATH or "?;?.lua;?/init.lua"
 --
 -- make sure require works with standard libraries
 --
-package.loaded = package.loaded or {}
+--package.loaded = package.loaded or {}
+package.loaded = {}
 package.loaded.debug = debug
 package.loaded.string = string
 package.loaded.math = math
