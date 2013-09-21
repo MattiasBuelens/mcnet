@@ -11,6 +11,15 @@ local EventLoop		= require "event.EventLoop"
 local Network		= require "mcnet.Network"
 
 -- Constants
+local PORT	= {
+	-- Reserved ports
+	MIN_RESERVED	= 1,
+	MAX_RESERVED	= 255,
+	-- Client ports
+	MIN_CLIENT		= 256,
+	MAX_CLIENT		= 65535
+}
+
 local FLAG = {
 	SYN		= "SYN",	-- Connect
 	FIN		= "FIN",	-- Disconnect
@@ -164,13 +173,13 @@ end
 
 -- Connection
 local Connection = EventEmitter:subclass("mcnet.transport.Connection")
-function Connection:initialize(transport, sourcePort, destPort, destAddress)
+function Connection:initialize(transport, destAddress, destPort, sourcePort)
 	super.initialize(self)
 	self.transport = transport
 	-- Addressing
-	self.sourcePort = tonumber(sourcePort)
-	self.destPort = tonumber(destPort)
 	self.destAddress = tonumber(destAddress)
+	self.destPort = tonumber(destPort)
+	self.sourcePort = tonumber(sourcePort)
 	-- Connection state
 	self.state = CONN_STATE.IDLE
 	-- Sliding window (stop and wait)
@@ -492,32 +501,42 @@ end
 function Transport:stopListening(sourcePort)
 	self.listenHandlers[sourcePort] = nil
 end
-function Transport:connect(sourcePort, destPort, destAddress)
-	if self:hasConnection(sourcePort, destPort, destAddress) then
+function Transport:connect(destAddress, destPort, sourcePort)
+	sourcePort = tonumber(sourcePort) or self:getClientPort(destAddress, destPort)
+	-- Active connect
+	if self:hasConnection(destAddress, destPort, sourcePort) then
 		error("already connected to "..destAddress..":"..destPort" on port "..sourcePort)
 	end
-	local conn = self:createConnection(sourcePort, destPort, destAddress)
+	local conn = self:createConnection(destAddress, destPort, sourcePort)
 	conn:open()
 	return conn
 end
-function Transport:hasConnection(sourcePort, destPort, destAddress)
-	return self:getConnection(sourcePort, destPort, destAddress) ~= nil
+function Transport:getClientPort(destAddress, destPort)
+	-- Find a random open client port
+	local sourcePort
+	repeat
+		sourcePort = math.random(PORT.MIN_CLIENT, PORT.MAX_CLIENT)
+	until not self:hasConnection(destAddress, destPort, sourcePort)
+	return sourcePort
+end
+function Transport:hasConnection(destAddress, destPort, sourcePort)
+	return self:getConnection(destAddress, destPort, sourcePort) ~= nil
 end
 function Transport:hasConnections()
 	return next(self.connections) ~= nil
 end
-function Transport:getConnection(sourcePort, destPort, destAddress)
-	return self.connections[self:getConnectionKey(sourcePort, destPort, destAddress)] or nil
+function Transport:getConnection(destAddress, destPort, sourcePort)
+	return self.connections[self:getConnectionKey(destAddress, destPort, sourcePort)] or nil
 end
-function Transport:getConnectionKey(sourcePort, destPort, destAddress)
-	return tostring(sourcePort)
+function Transport:getConnectionKey(destAddress, destPort, sourcePort)
+	return tostring(destAddress)
 		.. "#" .. tostring(destPort)
-		.. "#" .. tostring(destAddress)
+		.. "#" .. tostring(sourcePort)
 end
-function Transport:createConnection(sourcePort, destPort, destAddress)
-	local conn = Connection:new(self, sourcePort, destPort, destAddress)
+function Transport:createConnection(destAddress, destPort, sourcePort)
+	local conn = Connection:new(self, destAddress, destPort, sourcePort)
 	-- Store connection
-	local key = self:getConnectionKey(sourcePort, destPort, destAddress)
+	local key = self:getConnectionKey(destAddress, destPort, sourcePort)
 	self.connections[key] = conn
 	-- Register remove handler
 	conn:on("close", function()
@@ -531,14 +550,14 @@ function Transport:onReceive(sourceAddress, data)
 	-- Parse segment
 	local segment = Segment:parse(data)
 	-- Reverse source/destination terminology
-	local sourcePort, destPort, destAddress = segment.destPort, segment.sourcePort, sourceAddress
+	local destAddress, destPort, sourcePort = sourceAddress, segment.sourcePort, segment.destPort
 	-- Incoming connection (SYN w/o ACK)
 	if segment:hasFlag(FLAG.SYN) and not segment:hasFlag(FLAG.ACK) then
 		-- Find listen handler
 		local listenHandler = self:getListenHandler(sourcePort)
-		if listenHandler ~= nil and not self:hasConnection(sourcePort, destPort, destAddress) then
+		if listenHandler ~= nil and not self:hasConnection(destAddress, destPort, sourcePort) then
 			-- Listening, establish active connection
-			local conn = self:createConnection(sourcePort, destPort, destAddress)
+			local conn = self:createConnection(destAddress, destPort, sourcePort)
 			-- Call handler
 			listenHandler(conn)
 		else
@@ -547,7 +566,7 @@ function Transport:onReceive(sourceAddress, data)
 		end
 	end
 	-- Get receiving connection
-	local conn = self:getConnection(sourcePort, destPort, destAddress)
+	local conn = self:getConnection(destAddress, destPort, sourcePort)
 	if conn ~= nil then
 		conn:onReceive(segment)
 	end

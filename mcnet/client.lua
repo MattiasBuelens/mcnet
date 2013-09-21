@@ -33,7 +33,7 @@ print("Press Ctrl to quit")
 
 -- Client
 transport:open()
-local conn = transport:connect(1337, 80, tonumber(serverAddress))
+local conn = transport:connect(tonumber(serverAddress), 80)
 conn:on("open", function()
 	print("Connected")
 	print("Type a message and press Enter to send")
