@@ -26,7 +26,7 @@ print("Press Ctrl to quit")
 
 -- Server
 transport:open()
-local conn = transport:listen(80, function(conn)
+local conn = transport:listen("tcp", 80, function(conn)
 	print("Connecting to client...")
 	conn:on("open", function()
 		print("Connected")
