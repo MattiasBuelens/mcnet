@@ -77,6 +77,12 @@ function Transport:listen(protocolId, ...)
 	assert(protocol ~= nil, "unknown protocol: "..protocolId)
 	return protocol:listen(...)
 end
+function Transport:stopListening(protocolId, ...)
+	assert(self:isOpen(), "attempted to stop listening using closed transport entity")
+	local protocol = self:getProtocol(protocolId)
+	assert(protocol ~= nil, "unknown protocol: "..protocolId)
+	return protocol:stopListening(...)
+end
 function Transport:parsePacket(packet)
 	-- Parse protocol identifier and data
 	local protocolId, data = string.match(packet, "^([^#]+)#(.*)$")

@@ -11,13 +11,31 @@ local EventLoop = EventEmitter:subclass("event.EventLoop")
 EventLoop:has("running", {
 	is = "rb"
 })
+
+function EventLoop:initialize()
+	super.initialize(self)
+	-- Clean up on terminate
+	self:on("terminate", self.stop, self)
+end
 function EventLoop:run()
-	-- Run event loop
+	-- Start
 	self:start()
-	while self:isRunning() do
-		self:trigger(os.pullEvent())
-	end
+	-- Run event loop, catch errors
+	local ok, err = pcall(function()
+		self:process()
+	end)
+	-- Clean stop
 	self:stop()
+	-- Re-throw error
+	if not ok then
+		printError(err)
+	end
+end
+function EventLoop:process()
+	-- Process events
+	while self:isRunning() do
+		self:trigger(os.pullEventRaw())
+	end
 end
 function EventLoop:start()
 	if self:isRunning() then return false end
