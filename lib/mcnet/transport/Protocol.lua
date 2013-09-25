@@ -5,6 +5,8 @@
 
 ]]--
 
+local EventEmitter	= require "event.EventEmitter"
+
 local Protocol = EventEmitter:subclass("mcnet.transport.Protocol")
 
 -- Constants
@@ -19,17 +21,19 @@ Protocol.class.PORT = {
 
 function Protocol:initialize()
 	super.initialize(self)
-	self.open = false
+	self.bOpen = false
 end
 function Protocol:isOpen()
-	return self.open
+	return self.bOpen
 end
 function Protocol:open()
 	assert(not self:isOpen(), "attempted to open already opened protocol")
+	self.bOpen = true
 	self:trigger("open")
 end
 function Protocol:close()
 	assert(self:isOpen(), "attempted to close already close protocol")
+	self.bOpen = false
 	self:trigger("close")
 end
 function Protocol:getRandomClientPort()

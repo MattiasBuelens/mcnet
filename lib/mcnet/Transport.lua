@@ -14,8 +14,10 @@ local Network		= require "mcnet.Network"
 local Transport = EventEmitter:subclass("mcnet.transport.Transport")
 function Transport:initialize(address)
 	super.initialize(self)
-	self.protocols = self:createProtocols()
+	self.bOpen = false
+	self.protocols = {}
 	self.network = Network:new(address)
+	self:createProtocols()
 end
 function Transport:getProtocol(protocolId)
 	return self.protocols[string.lower(protocolId)]
@@ -25,8 +27,7 @@ function Transport:addProtocol(protocol)
 end
 function Transport:createProtocols()
 	-- Instantiate protocols
-	local protocols = {}
-	for _,protocolClass in pairs(Transport.class.protocolClasses) do
+	for _,protocolClass in pairs(Transport.protocolClasses) do
 		local protocol = protocolClass:new()
 		-- Register send event handler
 		protocol:on("send", function(...)
@@ -34,13 +35,13 @@ function Transport:createProtocols()
 		end)
 		self:addProtocol(protocol)
 	end
-	return protocols
 end
-function Protocol:isOpen()
-	return self.open
+function Transport:isOpen()
+	return self.bOpen
 end
 function Transport:open()
 	assert(not self:isOpen(), "attempted to open already opened transport entity")
+	self.bOpen = true
 	-- Open network
 	self.network:open()
 	-- Open protocols
@@ -52,7 +53,8 @@ function Transport:open()
 	self:trigger("open")
 end
 function Transport:close()
-	assert(not self:isOpen(), "attempted to close already closed transport entity")
+	assert(self:isOpen(), "attempted to close already closed transport entity")
+	self.bOpen = false
 	-- Unregister event handlers
 	self.network:off("receive", self.onReceive, self)
 	-- Close protocols
@@ -105,7 +107,7 @@ end
 -- Protocol class registry
 Transport.class.protocolClasses = {}
 function Transport.class:registerProtocol(protocolClass)
-	table.insert(Transport.class.protocolClasses, protocolClass)
+	table.insert(self.protocolClasses, protocolClass)
 end
 
 -- Default protocols
