@@ -10,8 +10,7 @@ dofile(fs.combine(lib, "/compat.lua"))
 package.root = lib
 
 local EventLoop	= require "event.EventLoop"
-local Transport	= require "mcnet.Transport"
-local transport	= Transport:new()
+local transport	= require "mcnet.Transport"
 
 -- Read server address
 local serverAddress = nil
@@ -20,19 +19,7 @@ repeat
 	serverAddress = read()
 until tonumber(serverAddress) ~= nil
 
--- Ctrl to quit
-EventLoop:on("key", function(key)
-	if key == keys.leftCtrl or key == rightCtrl then
-		-- Close and stop
-		transport:close()
-		EventLoop:stop()
-		print("Stopped")
-	end
-end)
-print("Press Ctrl to quit")
-
 -- Client
-transport:open()
 local conn = transport:connect("tcp", tonumber(serverAddress), 80)
 conn:on("open", function()
 	print("Connected")
@@ -65,7 +52,18 @@ end)
 conn:on("close", function()
 	print("Connection closed")
 end)
-print("Connecting...")
+
+-- Ctrl to quit
+EventLoop:on("key", function(key)
+	if key == keys.leftCtrl or key == rightCtrl then
+		-- Close and stop
+		conn:close()
+		EventLoop:stop()
+		print("Stopped")
+	end
+end)
+print("Press Ctrl to quit")
 
 -- Run
+print("Connecting...")
 EventLoop:run()

@@ -8,7 +8,6 @@
 local Object		= require "objectlua.Object"
 local EventEmitter	= require "event.EventEmitter"
 local EventLoop		= require "event.EventLoop"
-local Link			= require "mcnet.Link"
 
 -- Identifiers
 local HEADER_PACKET			= "PKT"	-- Packet
@@ -199,13 +198,22 @@ end
 local Network = EventEmitter:subclass("mcnet.network.Network")
 function Network:initialize(address)
 	super.initialize(self)
-	self.address = address or os.getComputerID()
-	self.link = Link:new(self.address)
+	self.link = require("mcnet.Link")
+	self.address = self.link.address
+	self.bOpen = false
 	self.table = RoutingTable:new()
+	-- Open immediately
+	self:open()
+end
+function Network:isOpen()
+	return self.bOpen
 end
 function Network:open()
+	if self:isOpen() then return false end
+	self.bOpen = true
 	-- Register event handlers
 	EventLoop:on("timer", self.onTimer, self)
+	EventLoop:on("terminate", self.close, self)
 	self.link:on("receive", self.onReceive, self)
 	self.link:on("connect", self.ripStart, self)
 	self.link:on("disconnect", self.ripStop, self)
@@ -213,21 +221,35 @@ function Network:open()
 	self.link:on("peer_disconnect", self.ripPeerDisconnect, self)
 	-- Open link
 	self.link:open()
+	-- Initialize routing table
+	self.table:reset()
+	self.table:set(self.address, 0, self.address, true)
+	for _,peer in pairs(self.link:getPeers()) do
+		self:ripPeerConnect(peer)
+	end
 	self:trigger("open")
+	return true
 end
 function Network:close()
+	if not self:isOpen() then return false end
+	self.bOpen = false
+	-- Close link
+	self.link:close()
+	-- Clear routing table
+	self.table:reset()
 	-- Unregister event handlers
 	EventLoop:off("timer", self.onTimer, self)
+	EventLoop:off("terminate", self.close, self)
 	self.link:off("receive", self.onReceive, self)
 	self.link:off("connect", self.ripStart, self)
 	self.link:off("disconnect", self.ripStop, self)
 	self.link:off("peer_connect", self.ripPeerConnect, self)
 	self.link:off("peer_disconnect", self.ripPeerDisconnect, self)
-	-- Close link
-	self.link:close()
 	self:trigger("close")
+	return true
 end
 function Network:send(destAddress, data, ttl)
+	assert(self:isOpen(), "cannot send packet over closed network")
 	if ttl == nil then
 		ttl = TTL_DEFAULT
 	end
@@ -246,9 +268,6 @@ function Network:ripSchedulePublish()
 	self.ripPublishTimer = os.startTimer(RIP_PUBLISH_DELAY)
 end
 function Network:ripStart()
-	-- Initialize routing table
-	self.table:reset()
-	self.table:set(self.address, 0, self.address, true)
 	-- Initial publish
 	self:ripPublish()
 	self:ripSchedulePublish()
@@ -285,12 +304,13 @@ function Network:handlePacket(peer, packet)
 	return self:route(packet)
 end
 function Network:route(packet)
+	assert(self:isOpen(), "cannot route packet over closed network")
 	-- Route the packet to the next hop
 	local entry = self.table:get(packet.destAddress)
 	if entry ~= nil and entry:isValid() then
 		-- Route found
 		self:trigger("route", packet, entry.peer)
-		self.link:send(entry.peer, packet:serialize())
+		self.link:send(entry.peer, Packet:serialize(packet))
 	else
 		-- Drop packet, no route found
 		self:trigger("drop", packet, "route")
@@ -320,4 +340,4 @@ function Network:onTimer(timerID)
 end
 
 -- Exports
-return Network
+return Network:new()

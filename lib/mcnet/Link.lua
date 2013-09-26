@@ -92,14 +92,15 @@ Link:has("address", {
 	is = "r"
 })
 
-function Link:initialize(address)
+function Link:initialize()
 	super.initialize(self)
-	self.address = address or os.getComputerID()
+	self.address = os.getComputerID()
+	self.bOpen = false
 	self.peers = {}
 	self.peersPonged = {}
 	self.interfaces = {}
 end
-function Link:getPeersList()
+function Link:getPeers()
 	local aPeers = {}
 	for sPeer, sSide in pairs(self.peers) do
 		if tValidSides[sSide] and self.interfaces[sSide]:isOpen() then
@@ -125,7 +126,12 @@ function Link:removePeer(peer)
 		self:trigger("peer_disconnect", peer)
 	end
 end
+function Link:isOpen()
+	return self.bOpen
+end
 function Link:open()
+	if self:isOpen() then return false end
+	self.bOpen = true
 	-- Open interfaces
 	for _,side in ipairs(rs.getSides()) do
 		if peripheral.getType(side) == "modem" then
@@ -138,23 +144,31 @@ function Link:open()
 	-- Register event handlers
 	EventLoop:on("modem_message", self.onModemMessage, self)
 	EventLoop:on("timer", self.onTimer, self)
+	EventLoop:on("terminate", self.close, self)
 	-- Connect to peers
 	self:connect()
+	return true
 end
 function Link:close()
+	if not self:isOpen() then return false end
 	-- Disconnect from peers
 	self:disconnect()
 	-- Unregister event handlers
 	EventLoop:off("modem_message", self.onModemMessage, self)
 	EventLoop:off("timer", self.onTimer, self)
+	EventLoop:off("terminate", self.close, self)
 	-- Close interfaces
 	for side,interface in pairs(self.interfaces) do
 		interface:close()
 	end
 	self.interfaces = {}
+	self.bOpen = false
 	self:trigger("close")
+	return true
 end
 function Link:connect()
+	-- Clear peers
+	self.peers = {}
 	-- Broadcast SYN
 	self:broadcast(Fragment:new(LINK_CMD_CONNECT))
 	self:trigger("connect")
@@ -177,6 +191,7 @@ function Link.class:buildFragment(fragment)
 	return fragment
 end
 function Link:broadcast(fragment)
+	assert(self:isOpen(), "cannot broadcast fragment over closed link")
 	-- Broadcast over all interfaces
 	fragment = Fragment:serialize(Link:buildFragment(fragment))
 	for side,interface in pairs(self.interfaces) do
@@ -186,6 +201,7 @@ function Link:broadcast(fragment)
 	end
 end
 function Link:send(peer, fragment)
+	assert(self:isOpen(), "cannot send fragment over closed link")
 	-- Send over single interface
 	fragment = Fragment:serialize(Link:buildFragment(fragment))
 	local side = self.peers[peer]
@@ -268,4 +284,4 @@ function Link:onTimer(timerID)
 end
 
 -- Exports
-return Link
+return Link:new()
