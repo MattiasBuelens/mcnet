@@ -8,16 +8,18 @@
 local Object		= require "objectlua.Object"
 local EventEmitter	= require "event.EventEmitter"
 local EventLoop		= require "event.EventLoop"
-local Network		= require "mcnet.Network"
 
 -- Transport
 local Transport = EventEmitter:subclass("mcnet.transport.Transport")
-function Transport:initialize(address)
+function Transport:initialize(network)
 	super.initialize(self)
+	self.network = network or require("mcnet.Network")
+	self.loop = EventLoop:new()
 	self.bOpen = false
 	self.protocols = {}
-	self.network = Network:new(address)
 	self:createProtocols()
+	-- Open immediately
+	self:open()
 end
 function Transport:getProtocol(protocolId)
 	return self.protocols[string.lower(protocolId)]
@@ -40,8 +42,11 @@ function Transport:isOpen()
 	return self.bOpen
 end
 function Transport:open()
-	assert(not self:isOpen(), "attempted to open already opened transport entity")
+	if self:isOpen() then return false end
 	self.bOpen = true
+	-- Setup loop
+	self.loop:on("terminate", self.close, self)
+	self.loop:start()
 	-- Open network
 	self.network:open()
 	-- Open protocols
@@ -51,9 +56,10 @@ function Transport:open()
 	-- Register event handlers
 	self.network:on("receive", self.onReceive, self)
 	self:trigger("open")
+	return true
 end
 function Transport:close()
-	assert(self:isOpen(), "attempted to close already closed transport entity")
+	if not self:isOpen() then return false end
 	self.bOpen = false
 	-- Unregister event handlers
 	self.network:off("receive", self.onReceive, self)
@@ -63,7 +69,9 @@ function Transport:close()
 	end
 	-- Close network
 	self.network:close()
+	self.loop:stop()
 	self:trigger("close")
+	return true
 end
 function Transport:connect(protocolId, ...)
 	assert(self:isOpen(), "attempted to connect using closed transport entity")
@@ -121,4 +129,4 @@ Transport:registerProtocol(require("mcnet.transport.TCP"))
 Transport:registerProtocol(require("mcnet.transport.UDP"))
 
 -- Exports
-return Transport
+return Transport:new()

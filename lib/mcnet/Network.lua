@@ -5,10 +5,9 @@
 
 ]]--
 
-local Object		= require "objectlua.Object"
-local EventEmitter	= require "event.EventEmitter"
-local EventLoop		= require "event.EventLoop"
-local Link			= require "mcnet.Link"
+local Object			= require "objectlua.Object"
+local EventEmitter		= require "event.EventEmitter"
+local EventLoop			= require "event.EventLoop"
 
 -- Identifiers
 local HEADER_PACKET			= "PKT"	-- Packet
@@ -197,15 +196,20 @@ end
 
 -- Network
 local Network = EventEmitter:subclass("mcnet.network.Network")
-function Network:initialize(address)
+function Network:initialize(link)
 	super.initialize(self)
-	self.address = address or os.getComputerID()
-	self.link = Link:new(self.address)
+	self.link = link or require("mcnet.Link")
+	self.address = self.link.address
 	self.table = RoutingTable:new()
+	self.loop = EventLoop:new()
+	-- Open immediately
+	self:open()
 end
 function Network:open()
 	-- Register event handlers
-	EventLoop:on("timer", self.onTimer, self)
+	self.loop:on("timer", self.onTimer, self)
+	self.loop:on("terminate", self.close, self)
+	self.loop:start()
 	self.link:on("receive", self.onReceive, self)
 	self.link:on("connect", self.ripStart, self)
 	self.link:on("disconnect", self.ripStop, self)
@@ -217,7 +221,7 @@ function Network:open()
 end
 function Network:close()
 	-- Unregister event handlers
-	EventLoop:off("timer", self.onTimer, self)
+	self.loop:stop()
 	self.link:off("receive", self.onReceive, self)
 	self.link:off("connect", self.ripStart, self)
 	self.link:off("disconnect", self.ripStop, self)
@@ -320,4 +324,4 @@ function Network:onTimer(timerID)
 end
 
 -- Exports
-return Network
+return Network:new()

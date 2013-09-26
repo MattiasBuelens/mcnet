@@ -98,8 +98,10 @@ function SendQueue:initialize(timeout, limit)
 	self.timer = nil					-- Timeout timer
 	self.isSending = false
 	self.sendCount = 0
-	-- Event handlers
-	EventLoop:on("timer", self.onTimer, self)
+	-- Register event handlers
+	self.loop = EventLoop:new()
+	self.loop:on("timer", self.onTimer, self)
+	self.loop:start()
 end
 function SendQueue:send(data, handler)
 	-- Add to queue
@@ -150,6 +152,10 @@ function SendQueue:reset()
 	self.isSending = false
 	self.sendCount = 0
 end
+function SendQueue:close()
+	self:reset()
+	self.loop:stop()
+end
 function SendQueue:onTimer(timerID)
 	if self.timer == timerID then
 		-- Resend
@@ -163,6 +169,7 @@ local Connection = EventEmitter:subclass("mcnet.transport.tcp.Connection")
 function Connection:initialize(protocol, destAddress, destPort, sourcePort)
 	super.initialize(self)
 	self.protocol = protocol
+	self.loop = EventLoop:new()
 	-- Addressing
 	self.destAddress = tonumber(destAddress)
 	self.destPort = tonumber(destPort)
@@ -210,6 +217,7 @@ function Connection:handleOpening()
 	-- Initialize
 	self.state = CONN_STATE.CONNECTING
 	self.sendSeq = math.random(0, 1)
+	self.loop:start()
 	-- Initialize queues
 	self:resetQueues()
 	self.controlQueue:on("send", self.sendControl, self)
@@ -227,7 +235,7 @@ function Connection:handleOpen()
 	self.pingQueue:on("send", self.sendPing, self)
 	self.pingQueue:on("limit", self.handleTimeout, self)
 	-- Initialize ping
-	EventLoop:on("timer", self.onTimer, self)
+	self.loop:on("timer", self.onTimer, self)
 	self:scheduleAliveTest()
 	-- Call listeners
 	self:trigger("open")
@@ -241,7 +249,7 @@ function Connection:handleClosing()
 	-- Reset state
 	self:resetQueues()
 	-- Reset ping
-	EventLoop:off("timer", self.onTimer, self)
+	self.loop:off("timer", self.onTimer, self)
 	self.pingDelay = nil
 	-- Call listeners
 	if self.state ~= CONN_STATE.DISCONNECTING then
@@ -255,6 +263,11 @@ function Connection:handleClose()
 		self:handleClosing()
 		self.state = CONN_STATE.IDLE
 		self.receiveSeq = nil
+		-- Close components
+		self.controlQueue:close()
+		self.dataQueue:close()
+		self.pingQueue:close()
+		self.loop:stop()
 		-- Call listeners
 		self:trigger("close")
 	end

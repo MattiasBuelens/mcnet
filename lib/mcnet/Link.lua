@@ -92,9 +92,10 @@ Link:has("address", {
 	is = "r"
 })
 
-function Link:initialize(address)
+function Link:initialize()
 	super.initialize(self)
-	self.address = address or os.getComputerID()
+	self.address = os.getComputerID()
+	self.loop = EventLoop:new()
 	self.peers = {}
 	self.peersPonged = {}
 	self.interfaces = {}
@@ -136,8 +137,10 @@ function Link:open()
 	end
 	self:trigger("open")
 	-- Register event handlers
-	EventLoop:on("modem_message", self.onModemMessage, self)
-	EventLoop:on("timer", self.onTimer, self)
+	self.loop:on("modem_message", self.onModemMessage, self)
+	self.loop:on("timer", self.onTimer, self)
+	self.loop:on("terminate", self.close, self)
+	self.loop:start()
 	-- Connect to peers
 	self:connect()
 end
@@ -145,8 +148,7 @@ function Link:close()
 	-- Disconnect from peers
 	self:disconnect()
 	-- Unregister event handlers
-	EventLoop:off("modem_message", self.onModemMessage, self)
-	EventLoop:off("timer", self.onTimer, self)
+	self.loop:stop()
 	-- Close interfaces
 	for side,interface in pairs(self.interfaces) do
 		interface:close()
@@ -268,4 +270,4 @@ function Link:onTimer(timerID)
 end
 
 -- Exports
-return Link
+return Link:new()

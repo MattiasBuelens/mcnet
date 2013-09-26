@@ -9,16 +9,15 @@ local lib = fs.combine(shell.getRunningProgram(), "/../../lib/")
 dofile(fs.combine(lib, "/compat.lua"))
 package.root = lib
 
-local EventLoop	= require "event.EventLoop"
-local Network	= require "mcnet.Network"
-local network	= Network:new()
+local LocalEventLoop	= require "event.LocalEventLoop"
+local network			= require "mcnet.Network"
 
 -- Ctrl to quit
-EventLoop:on("key", function(key)
+LocalEventLoop:on("key", function(key)
 	if key == keys.leftCtrl or key == rightCtrl then
 		-- Close and stop
 		network:close()
-		EventLoop:stop()
+		LocalEventLoop:stop()
 		print("Stopped")
 	end
 end)
@@ -31,13 +30,13 @@ network:on("receive", function(senderAddress, data)
 	end
 end)
 local pingAddress = ""
-EventLoop:on("char", function(char)
+LocalEventLoop:on("char", function(char)
 	if tonumber(char) ~= nil then
 		pingAddress = pingAddress .. char
 		write(char)
 	end
 end)
-EventLoop:on("key", function(key)
+LocalEventLoop:on("key", function(key)
 	if key == keys.enter or key == numPadEnter then
 		print()
 		print("Sent ping to "..pingAddress)
@@ -48,5 +47,4 @@ end)
 print("Type an address and press Enter to ping")
 
 -- Run
-network:open()
-EventLoop:run()
+LocalEventLoop:run()

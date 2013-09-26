@@ -9,23 +9,20 @@ local lib = fs.combine(shell.getRunningProgram(), "/../../lib/")
 dofile(fs.combine(lib, "/compat.lua"))
 package.root = lib
 
-local EventLoop	= require "event.EventLoop"
-local Network	= require "mcnet.Network"
-local network	= Network:new()
+local LocalEventLoop	= require "event.LocalEventLoop"
+local network			= require "mcnet.Network"
 
 -- Ctrl to quit
-EventLoop:on("key", function(key)
+LocalEventLoop:on("key", function(key)
 	if key == keys.leftCtrl or key == rightCtrl then
 		network:close()
-		EventLoop:stop()
+		LocalEventLoop:stop()
 	end
 end)
 print("Press Ctrl to quit")
 
 -- Debug
-network:on("open", function()
-	print("Router started on address "..network.address)
-end)
+print("Router started on address "..network.address)
 network:on("close", function()
 	print("Router stopped")
 end)
@@ -41,5 +38,4 @@ network:on("drop", function(packet, reason)
 end)
 
 -- Run
-network:open()
-EventLoop:run()
+LocalEventLoop:run()
