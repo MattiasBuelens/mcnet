@@ -14,11 +14,20 @@ local TELNET_PORT	= 23
 local Client = EventEmitter:subclass("mcnet.telnet.Client")
 function Client:initialize(transport, serverAddress, serverPort)
 	super.initialize(self)
+	self.bOpen = false
 	self.transport = transport
 	self.serverAddress = tonumber(serverAddress)
 	self.serverPort = tonumber(serverPort) or TELNET_PORT
 end
+function Client:isOpen()
+	return self.bOpen
+end
+function Client:isConnected()
+	return self.conn ~= nil and self.conn:isOpen()
+end
 function Client:open()
+	if self:isOpen() then return false end
+	self.bOpen = true
 	if self.conn == nil then
 		-- Connect to server
 		self.conn = self.transport:connect("tcp", self.serverAddress, self.serverPort)
@@ -33,8 +42,11 @@ function Client:open()
 	EventLoop:on("mouse_click", self.onMouseClick, self)
 	EventLoop:on("mouse_scroll", self.onMouseClick, self)
 	EventLoop:on("mouse_drag", self.onMouseDrag, self)
+	return true
 end
 function Client:close()
+	if not self:isOpen() then return false end
+	self.bOpen = false
 	-- Close connection
 	if self.conn ~= nil then
 		self.conn:off("open", self.onOpen, self)
@@ -50,6 +62,8 @@ function Client:close()
 	EventLoop:off("mouse_click", self.onMouseClick, self)
 	EventLoop:off("mouse_scroll", self.onMouseScroll, self)
 	EventLoop:off("mouse_drag", self.onMouseDrag, self)
+	self:trigger("close")
+	return true
 end
 function Client:setup()
 	local width, height = term.getSize()
@@ -63,6 +77,7 @@ function Client:setup()
 			isColor	= isColor
 		}
 	})
+	self:trigger("open")
 end
 function Client:send(message)
 	if self.conn ~= nil and self.conn:isOpen() then
@@ -78,7 +93,7 @@ end
 function Client:sendEvent(...)
 	-- Send event message
 	self:send({
-		command	= "event"
+		command	= "event",
 		data	= { ... }
 	})
 end
@@ -106,4 +121,4 @@ function Client:onReceive(data)
 	end
 end
 
-return Server
+return Client

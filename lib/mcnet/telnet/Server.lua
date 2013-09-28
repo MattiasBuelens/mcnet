@@ -5,15 +5,15 @@
 
 ]]--
 
+local Object		= require "objectlua.Object"
 local EventEmitter	= require "event.EventEmitter"
 local EventLoop		= require "event.EventLoop"
 
 -- Constants
 local TELNET_PORT	= 23
 
-local RemoteTerminal = EventEmitter:subclass("mcnet.telnet.RemoteTerminal")
+local RemoteTerminal = Object:subclass("mcnet.telnet.RemoteTerminal")
 function RemoteTerminal:initialize(server, width, height, isColor)
-	super.initialize(self)
 	-- Owner server
 	self.server = server
 	-- Sanitize input
@@ -31,18 +31,22 @@ function RemoteTerminal:initialize(server, width, height, isColor)
 		end
 	end
 	-- Override getters
+	self.getCursorPos = function()
+		return term.native.getCursorPos()
+	end
 	self.getSize = function()
 		return width, height
 	end
 	self.isColor = function()
 		return isColor
 	end
+	self.isColour = self.isColor
 end
 function RemoteTerminal:sendCommand(functionName, ...)
 	-- Send terminal message
 	self.server:send({
-		command	= "terminal"
-		fn		= functionName
+		command	= "terminal",
+		fn		= functionName,
 		params	= arg
 	})
 end
@@ -52,25 +56,29 @@ function Server:initialize(transport, serverPort)
 	super.initialize(self)
 	self.transport = transport
 	self.serverPort = tonumber(serverPort) or TELNET_PORT
-	self.remoteTerminal = nil
-	self.isRedirecting = false
 end
 function Server:start()
 	-- Start listening
 	self.transport:listen("tcp", self.serverPort, function(conn)
 		self:onConnect(conn)
 	end)
+	self:trigger("start")
 end
 function Server:stop()
 	-- Close
 	self:close()
 	-- Stop listening
 	self.transport:stopListening("tcp", self.serverPort)
+	self:trigger("stop")
+end
+function Server:isConnected()
+	return self.conn ~= nil and self.conn:isOpen()
 end
 function Server:onConnect(conn)
-	if self.conn ~= nil and self.conn:isOpen()
+	if self:isConnected() then
 		-- Reject new connection
 		conn:close()
+		return
 	end
 	-- Store client connection
 	self.conn = conn
@@ -82,9 +90,6 @@ end
 function Server:close()
 	-- Close terminal
 	self.remoteTerminal = nil
-	if self.isRedirecting then
-		term.restore()
-	end
 	if self.conn ~= nil then
 		-- Unregister event handlers
 		self.conn:off("receive", self.onReceive, self)
@@ -93,19 +98,67 @@ function Server:close()
 		-- Close connection
 		self.conn:close()
 		self.conn = nil
+		self:trigger("close")
 	end
 end
 function Server:onSetup(setupData)
-	-- Create remote terminal
-	self.remoteTerminal = RemoteTerminal:new(self, setupData.width, setupData.height, setupData.isColor)
+	-- Ready
+	self:trigger("open")
 	-- Redirect terminal
-	term.redirect(self.remoteTerminal)
+	local remoteTerminal = RemoteTerminal:new(self, setupData.width, setupData.height, setupData.isColor)
+	term.redirect(remoteTerminal)
+	self:clearTerminal()
+	-- Start session
+	local ok, err = pcall(function()
+		parallel.waitForAny(
+			function()
+				-- Run session
+				self:runSession()
+			end,
+			function()
+				-- Keep processing events
+				while self:isConnected() and EventLoop:isRunning() do
+					EventLoop:process()
+				end
+				-- Force close session
+				self:closeSession()
+			end)
+	end)
+	-- Restore terminal
+	term.restore()
+	self:clearTerminal()
+	-- Close session
+	self:close()
+	-- Print errors
+	if not ok then
+		printError(err)
+	end
+end
+function Server:runSession()
+	self:trigger("session")
+	-- Run a non-root shell
+	local parentShell = _G.shell
+	-- If no root shell available, use a dummy root shell
+	_G.shell = parentShell or require("mcnet.telnet.DummyShell")
+	os.run({}, "rom/programs/shell")
+	-- Restore
+	_G.shell = parentShell
+end
+function Server:closeSession()
+	-- Close created shell
+	if _G.shell then
+		_G.shell.exit()
+	end
+end
+function Server:clearTerminal()
+	term.clear()
+	term.setCursorPos(1, 1)
 end
 function Server:onClose()
 	self:close()
 end
 function Server:send(message)
-	if self.conn:isOpen() then
+	if self:isConnected() then
 		self.conn:send(textutils.serialize(message))
 	end
 end
