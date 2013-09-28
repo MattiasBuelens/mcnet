@@ -8,6 +8,7 @@
 local Object		= require "objectlua.Object"
 local EventEmitter	= require "event.EventEmitter"
 local EventLoop		= require "event.EventLoop"
+local Command		= require "telnet.Command"
 
 -- Constants
 local TELNET_PORT	= 23
@@ -42,13 +43,9 @@ function RemoteTerminal:initialize(server, width, height, isColor)
 	end
 	self.isColour = self.isColor
 end
-function RemoteTerminal:sendCommand(functionName, ...)
-	-- Send terminal message
-	self.server:send({
-		command	= "terminal",
-		fn		= functionName,
-		params	= arg
-	})
+function RemoteTerminal:sendCommand(...)
+	-- Send terminal command
+	self.server:send(Command:new("terminal", { ... }))
 end
 
 local Server = EventEmitter:subclass("telnet.Server")
@@ -157,14 +154,14 @@ end
 function Server:onClose()
 	self:close()
 end
-function Server:send(message)
+function Server:send(command)
 	if self:isConnected() then
-		self.conn:send(textutils.serialize(message))
+		self.conn:send(Command:serialize(command))
 	end
 end
 function Server:onReceive(data)
 	-- Unpack message
-	local message = textutils.unserialize(data)
+	local message = Command:parse(data)
 	if message.command == "event" then
 		-- Queue event
 		os.queueEvent(unpack(message.data))

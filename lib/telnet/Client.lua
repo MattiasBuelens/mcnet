@@ -69,20 +69,17 @@ end
 function Client:setup()
 	local width, height = term.getSize()
 	local isColor = term.isColor()
-	-- Send setup data
-	self:send({
-		command = "setup",
-		data	= {
-			width	= width,
-			height	= height,
-			isColor	= isColor
-		}
-	})
+	-- Send setup command
+	self:send(Command:new("setup", {
+		width	= width,
+		height	= height,
+		isColor	= isColor
+	}))
 	self:trigger("open")
 end
-function Client:send(message)
-	if self.conn ~= nil and self.conn:isOpen() then
-		self.conn:send(textutils.serialize(message))
+function Client:send(command)
+	if self:isConnected() then
+		self.conn:send(Command:serialize(command))
 	end
 end
 function Client:onOpen()
@@ -92,11 +89,8 @@ function Client:onClose()
 	self:close()
 end
 function Client:sendEvent(...)
-	-- Send event message
-	self:send({
-		command	= "event",
-		data	= { ... }
-	})
+	-- Send event command
+	self:send(Command:new("event", { ... }))
 end
 function Client:onKey(...)
 	self:sendEvent("key", ...)
@@ -115,10 +109,12 @@ function Client:onMouseDrag(...)
 end
 function Client:onReceive(data)
 	-- Unpack message
-	local message = textutils.unserialize(data)
+	local message = Command:parse(data)
 	if message.command == "terminal" then
 		-- Remote terminal call
-		term[message.fn](unpack(message.params))
+		local params = message.data
+		local fn = table.remove(params, 1)
+		term[fn](unpack(params))
 	end
 end
 
