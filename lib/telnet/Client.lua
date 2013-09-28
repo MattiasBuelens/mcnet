@@ -1,17 +1,18 @@
 --[[
 
-	MCNet
-	Telnet client
+	MCNet Telnet
+	Client
 
 ]]--
 
 local EventEmitter	= require "event.EventEmitter"
 local EventLoop		= require "event.EventLoop"
+local Command		= require "telnet.Command"
 
 -- Constants
 local TELNET_PORT	= 23
 
-local Client = EventEmitter:subclass("mcnet.telnet.Client")
+local Client = EventEmitter:subclass("telnet.Client")
 function Client:initialize(transport, serverAddress, serverPort)
 	super.initialize(self)
 	self.bOpen = false

@@ -1,6 +1,8 @@
 --[[
 
+	MCNet Telnet
 	Dummy shell
+
 	Parent shell with defaults from rom/startup
 
 ]]--

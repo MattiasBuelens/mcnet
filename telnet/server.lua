@@ -1,7 +1,7 @@
 --[[
 
-	MCNet
-	Telnet server
+	MCNet Telnet
+	Server program
 
 ]]--
 
@@ -10,8 +10,8 @@ dofile(fs.combine(lib, "/compat.lua"))
 package.root = lib
 
 local EventLoop	= require "event.EventLoop"
-local Server	= require "mcnet.telnet.Server"
 local Transport	= require "mcnet.Transport"
+local Server	= require "telnet.Server"
 local transport	= Transport:new()
 
 -- Close and stop

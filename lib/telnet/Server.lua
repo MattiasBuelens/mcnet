@@ -1,7 +1,7 @@
 --[[
 
-	MCNet
-	Telnet server
+	MCNet Telnet
+	Server
 
 ]]--
 
@@ -12,7 +12,7 @@ local EventLoop		= require "event.EventLoop"
 -- Constants
 local TELNET_PORT	= 23
 
-local RemoteTerminal = Object:subclass("mcnet.telnet.RemoteTerminal")
+local RemoteTerminal = Object:subclass("telnet.RemoteTerminal")
 function RemoteTerminal:initialize(server, width, height, isColor)
 	-- Owner server
 	self.server = server
@@ -51,7 +51,7 @@ function RemoteTerminal:sendCommand(functionName, ...)
 	})
 end
 
-local Server = EventEmitter:subclass("mcnet.telnet.Server")
+local Server = EventEmitter:subclass("telnet.Server")
 function Server:initialize(transport, serverPort)
 	super.initialize(self)
 	self.transport = transport
@@ -139,7 +139,7 @@ function Server:runSession()
 	-- Run a non-root shell
 	local parentShell = _G.shell
 	-- If no root shell available, use a dummy root shell
-	_G.shell = parentShell or require("mcnet.telnet.DummyShell")
+	_G.shell = parentShell or require("telnet.DummyShell")
 	os.run({}, "rom/programs/shell")
 	-- Restore
 	_G.shell = parentShell
