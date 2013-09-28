@@ -22,7 +22,7 @@ until tonumber(serverAddress) ~= nil
 
 -- Ctrl to quit
 EventLoop:on("key", function(key)
-	if key == keys.leftCtrl or key == rightCtrl then
+	if key == keys.leftCtrl or key == keys.rightCtrl then
 		-- Close and stop
 		transport:close()
 		EventLoop:stop()

@@ -22,7 +22,9 @@ function EventLoop:run()
 	self:start()
 	-- Run event loop, catch errors
 	local ok, err = pcall(function()
-		self:process()
+		while self:isRunning() do
+			self:process()
+		end
 	end)
 	-- Clean stop
 	self:stop()
@@ -32,10 +34,8 @@ function EventLoop:run()
 	end
 end
 function EventLoop:process()
-	-- Process events
-	while self:isRunning() do
-		self:trigger(os.pullEventRaw())
-	end
+	-- Process event
+	self:trigger(os.pullEventRaw())
 end
 function EventLoop:start()
 	if self:isRunning() then return false end

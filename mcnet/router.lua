@@ -15,7 +15,7 @@ local network	= Network:new()
 
 -- Ctrl to quit
 EventLoop:on("key", function(key)
-	if key == keys.leftCtrl or key == rightCtrl then
+	if key == keys.leftCtrl or key == keys.rightCtrl then
 		network:close()
 		EventLoop:stop()
 	end

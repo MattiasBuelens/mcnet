@@ -40,7 +40,7 @@ function Transport:isOpen()
 	return self.bOpen
 end
 function Transport:open()
-	assert(not self:isOpen(), "attempted to open already opened transport entity")
+	if self:isOpen() then return false end
 	self.bOpen = true
 	-- Open network
 	self.network:open()
@@ -51,9 +51,10 @@ function Transport:open()
 	-- Register event handlers
 	self.network:on("receive", self.onReceive, self)
 	self:trigger("open")
+	return true
 end
 function Transport:close()
-	assert(self:isOpen(), "attempted to close already closed transport entity")
+	if not self:isOpen() then return false end
 	self.bOpen = false
 	-- Unregister event handlers
 	self.network:off("receive", self.onReceive, self)
@@ -64,6 +65,7 @@ function Transport:close()
 	-- Close network
 	self.network:close()
 	self:trigger("close")
+	return true
 end
 function Transport:connect(protocolId, ...)
 	assert(self:isOpen(), "attempted to connect using closed transport entity")

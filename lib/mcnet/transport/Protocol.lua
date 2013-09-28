@@ -27,14 +27,16 @@ function Protocol:isOpen()
 	return self.bOpen
 end
 function Protocol:open()
-	assert(not self:isOpen(), "attempted to open already opened protocol")
+	if self:isOpen() then return false end
 	self.bOpen = true
 	self:trigger("open")
+	return true
 end
 function Protocol:close()
-	assert(self:isOpen(), "attempted to close already close protocol")
+	if not self:isOpen() then return false end
 	self.bOpen = false
 	self:trigger("close")
+	return true
 end
 function Protocol:getRandomClientPort()
 	return math.random(Protocol.PORT.MIN_CLIENT, Protocol.PORT.MAX_CLIENT)
@@ -52,9 +54,10 @@ function Protocol:listen(...)
 	error("protocol does not support listening for connections")
 end
 function Protocol:rawSend(destAddress, data)
-	assert(self:isOpen(), "attempted to send packet over closed protocol")
 	-- Send packet
+	if not self:isOpen() then return false end
 	self:trigger("send", destAddress, data)
+	return true
 end
 function Protocol:onReceive(sourceAddress, data)
 	-- Handle received packet

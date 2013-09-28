@@ -96,8 +96,8 @@ function SendQueue:initialize(timeout, limit)
 	-- State
 	self.queue = {}						-- Queue of messages
 	self.timer = nil					-- Timeout timer
-	self.isSending = false
-	self.sendCount = 0
+	self.isSending = false				-- Whether currently sending
+	self.attempt = 0					-- Number of send attempts
 	-- Event handlers
 	EventLoop:on("timer", self.onTimer, self)
 end
@@ -115,19 +115,23 @@ function SendQueue:resend()
 	if self.isSending or #self.queue == 0 then
 		return false
 	end
-	-- Increase send count
-	self.sendCount = self.sendCount + 1
-	if self.sendCount > self.limit then
+	-- Increase attempt
+	self.attempt = self.attempt + 1
+	if self.attempt > self.limit then
 		-- Hit limit
 		self:trigger("limit")
 	else
-		-- Send
+		-- Send next
 		self.isSending = true
 		self.timer = os.startTimer(self.timeout)
-		self:trigger("send", self.queue[1].data)
+		self:sendNext()
 	end
 end
+function SendQueue:sendNext()
+	self:trigger("send", self.queue[1].data)
+end
 function SendQueue:deliver()
+	-- Must be sending
 	if #self.queue == 0 then
 		return nil
 	end
@@ -136,8 +140,8 @@ function SendQueue:deliver()
 	-- Reset
 	self.timer = nil
 	self.isSending = false
-	self.sendCount = 0
-	-- Call listeners
+	self.attempt = 0
+	-- Call listener
 	if item.handler then item.handler() end
 	-- Send next
 	self:resend()
@@ -148,7 +152,7 @@ function SendQueue:reset()
 	self.queue = {}
 	self.timer = nil
 	self.isSending = false
-	self.sendCount = 0
+	self.attempt = 0
 end
 function SendQueue:onTimer(timerID)
 	if self.timer == timerID then
@@ -156,6 +160,70 @@ function SendQueue:onTimer(timerID)
 		self.isSending = false
 		self:resend()
 	end
+end
+
+-- Data queue
+local DataQueue = SendQueue:subclass("mcnet.transport.tcp.DataQueue")
+function DataQueue:initialize(timeout, limit)
+	super.initialize(self, timeout, limit)
+	-- State
+	self.sendAmount = 0					-- Amount of queue items being sent
+end
+function DataQueue:sendNext()
+	local dataList = self:collectData()
+	self:trigger("send", DataQueue:serializeData(dataList))
+end
+function DataQueue:collectData()
+	-- Send whole queue if not resending
+	if self.sendAmount == 0 then
+		self.sendAmount = #self.queue
+	end
+	-- Make list of data in queue
+	local dataList = {}
+	for i=1,self.sendAmount do
+		table.insert(dataList, self.queue[i].data)
+	end
+	return dataList
+end
+function DataQueue.class:serializeData(dataList)
+	return textutils.serialize(dataList)
+end
+function DataQueue.class:parseData(data)
+	return textutils.unserialize(data)
+end
+function DataQueue:deliver()
+	-- Must be sending items
+	if self.sendAmount == 0 then
+		return {}
+	end
+	-- Reset
+	self.timer = nil
+	self.isSending = false
+	self.attempt = 0
+	-- Delivered items
+	local delivered = {}
+	for i=1,self.sendAmount do
+		-- Remove from queue
+		local item = table.remove(self.queue, 1)
+		-- Add to delivered
+		table.insert(delivered, item)
+	end
+	self.sendAmount = 0
+	-- Delivered data
+	local dataList = {}
+	for i,item in ipairs(delivered) do
+		-- Add to results
+		table.insert(dataList, item.data)
+		-- Call listener
+		if item.handler then item.handler() end
+	end
+	-- Send next
+	self:resend()
+	return dataList
+end
+function DataQueue:reset()
+	super.reset(self)
+	self.sendAmount = 0
 end
 
 -- Connection
@@ -174,7 +242,7 @@ function Connection:initialize(protocol, destAddress, destPort, sourcePort)
 	self.receiveSeq = nil				-- Sequence number of next segment to receive
 	-- Queues
 	self.controlQueue = SendQueue:new(CONTROL_TIMEOUT, CONTROL_LIMIT)
-	self.dataQueue = SendQueue:new(DATA_TIMEOUT, DATA_LIMIT)
+	self.dataQueue = DataQueue:new(DATA_TIMEOUT, DATA_LIMIT)
 	self.pingQueue = SendQueue:new(PING_TIMEOUT, PING_LIMIT)
 	-- Timers
 	self.pingDelay = nil				-- Timer for ping tests
@@ -333,7 +401,10 @@ function Connection:handleData(segment)
 	-- Send ACK
 	self:sendAck()
 	-- Call listeners
-	self:trigger("receive", segment.data)
+	local dataList = DataQueue:parseData(segment.data)
+	for i,data in ipairs(dataList) do
+		self:trigger("receive", data)
+	end
 end
 function Connection:handleAck(segment)
 	-- Check for expected ACK number
@@ -346,8 +417,10 @@ function Connection:handleAck(segment)
 	end
 	-- Successfully delivered
 	self.sendSeq = expectedSeq
-	local data = self.dataQueue:deliver()
-	self:trigger("deliver", data)
+	local dataList = self.dataQueue:deliver()
+	for i,data in ipairs(dataList) do
+		self:trigger("deliver", data)
+	end
 end
 function Connection:nextSeq(number)
 	-- Get the next sequence number
@@ -454,6 +527,7 @@ function TCP:getIdentifier()
 	return "TCP"
 end
 function TCP:close()
+	if not self:isOpen() then return false end
 	-- Unlink connections table (ignore removes)
 	local connections = self.connections
 	self.connections = {}
@@ -461,7 +535,7 @@ function TCP:close()
 	for key,conn in pairs(connections) do
 		conn:forceClose()
 	end
-	super.close(self)
+	return super.close(self)
 end
 function TCP:rawSend(destAddress, segment)
 	super.rawSend(self, destAddress, Segment:serialize(segment))
