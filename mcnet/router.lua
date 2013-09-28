@@ -23,6 +23,9 @@ end)
 print("Press Ctrl to quit")
 
 -- Debug
+local function truncate(s, n)
+	return #s >= n and string.sub(s, 1, n-3).."..." or s
+end
 network:on("open", function()
 	print("Router started on address "..network.address)
 end)
@@ -32,7 +35,7 @@ end)
 network:on("route", function(packet, peer)
 	print("Packet routed to "..peer)
 	print("  src: "..packet.sourceAddress..", dst: "..packet.destAddress)
-	print("  data: "..packet.data)
+	print("  data: "..truncate(packet.data, 40))
 end)
 network:on("drop", function(packet, reason)
 	print("Packet dropped because of "..reason)
